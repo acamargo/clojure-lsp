@@ -1,9 +1,9 @@
 (ns clojure-lsp.snapshot
   (:require
    [clojure-lsp.shared :as shared]
+   [clojure.edn :as edn]
    [clojure.java.io :as io])
   (:import
-   [java.io File]
    (java.security MessageDigest)
    [java.util UUID]))
 
@@ -24,57 +24,33 @@
         raw (.digest algorithm (.getBytes input-str "UTF-8"))]
     (format "%032x" (BigInteger. 1 raw))))
 
+(defn ^:private string-to-hash
+  [input-str]
+  #_(string-to-uuid input-str)
+  #_(keyword (string-to-md5 %))
+  input-str)
+
 (defn ^:private read-file
-  ([] (read-file (io/file ".lsp" "snapshot.txt")))
+  ([] (read-file (io/file ".lsp" "snapshot.edn")))
   ([path]
    (shared/logging-time
      "[SNAPSHOT] Read took %s"
      (let [file (io/file path)]
        (if (.exists file)
          (let [result-hash (with-open [reader (io/reader file)]
-                             (into #{}
-                                   (map #(keyword (string-to-md5 %))
-                                        (line-seq reader))))]
+                             (edn/read (java.io.PushbackReader. reader)))]
            #_(spit "snapshot-uuid.edn" (pr-str result-hash))
            result-hash)
-         #{})))))
+         {})))))
 
 (def read-file-memo (memoize read-file))
 
-(defonce cache (atom #{}))
+(defonce cache (atom {}))
 
 (defn warm-cache!
   []
   (swap! cache (fn [_] (read-file))))
 
-(defn severity->level [severity]
-  (case (int severity)
-    1 :error
-    2 :warning
-    3 :info))
-
-(defn diagnostic->diagnostic-message [path {:keys [message severity range code]}]
-  (format "%s:%s:%s: %s: [%s] %s"
-          path
-          (-> range :start :line inc)
-          (-> range :start :character inc)
-          (name (severity->level severity))
-          code
-          message))
-
-(defn ^:private project-root->uri [project-root db]
-  (-> (or ^File project-root (io/file ""))
-      .getCanonicalPath
-      (shared/filename->uri db)))
-
 (defn discard
-  [uri db diagnostics]
-  (shared/logging-time
-    "[SNAPSHOT] Discard took %s"
-    (let [snapshot @cache
-          project-path (shared/uri->filename (project-root->uri nil db))
-          filename (shared/uri->filename uri)
-          file-output (shared/relativize-filepath filename project-path)]
-      (into []
-            (remove #(contains? snapshot (keyword (string-to-md5 (diagnostic->diagnostic-message file-output %))))
-                    diagnostics)))))
+  [uri]
+  (get @cache uri))

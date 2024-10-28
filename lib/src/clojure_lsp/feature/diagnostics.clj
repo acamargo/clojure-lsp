@@ -188,7 +188,11 @@
         (concat (clj-depend-violations->diagnostics uri depend-level db))))))
 
 (defn find-diagnostics [^String uri db]
-  (snapshot/discard uri db (find-diagnostics* uri db)))
+  (shared/logging-time
+    "[SNAPSHOT] find-diagnostics took %s"
+    (let [current (set (find-diagnostics* uri db))
+          ignore (set (snapshot/discard uri))]
+      (set/difference current ignore))))
 
 (defn ^:private publish-diagnostic!* [{:keys [diagnostics-chan]} diagnostic]
   (async/put! diagnostics-chan diagnostic))
